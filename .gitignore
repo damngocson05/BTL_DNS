@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+config.py
+portfolio_data.json
+.theme
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/
+.claude/
