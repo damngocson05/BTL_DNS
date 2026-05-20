@@ -9,6 +9,7 @@ portfolio_data.json
 *.egg-info/
 dist/
 build/
+*.spec
 .idea/
 .vscode/
 .claude/
