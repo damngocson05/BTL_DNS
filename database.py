@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pyodbc
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 
 class DatabaseManager:
@@ -71,31 +71,59 @@ class DatabaseManager:
 
         try:
             cursor = self.conn.cursor()
+
+            # Drop old tables if they exist (old schema without FK)
+            cursor.execute("""
+                IF EXISTS (SELECT * FROM sysobjects WHERE name='alerts' AND xtype='U')
+                DROP TABLE alerts
+            """)
+            cursor.execute("""
+                IF EXISTS (SELECT * FROM sysobjects WHERE name='transactions' AND xtype='U')
+                DROP TABLE transactions
+            """)
+
+            # Create portfolios table (parent)
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='portfolios' AND xtype='U')
+                CREATE TABLE portfolios (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    symbol NVARCHAR(20) NOT NULL,
+                    asset_type NVARCHAR(20) NOT NULL,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    UNIQUE(symbol, asset_type)
+                )
+            """)
+
+            # Create transactions table (child, FK to portfolios)
             cursor.execute("""
                 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='transactions' AND xtype='U')
                 CREATE TABLE transactions (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    asset NVARCHAR(20) NOT NULL,
-                    asset_type NVARCHAR(20) NOT NULL,
+                    portfolio_id INT NOT NULL,
+                    symbol NVARCHAR(20) NOT NULL,
                     side NVARCHAR(10) NOT NULL,
                     quantity FLOAT NOT NULL,
                     price FLOAT NOT NULL,
                     realized_pnl FLOAT DEFAULT 0.0,
-                    created_at DATETIME DEFAULT GETDATE()
+                    created_at DATETIME DEFAULT GETDATE(),
+                    FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
                 )
             """)
+
+            # Create price_alerts table (independent)
             cursor.execute("""
-                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='alerts' AND xtype='U')
-                CREATE TABLE alerts (
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='price_alerts' AND xtype='U')
+                CREATE TABLE price_alerts (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    asset NVARCHAR(20) NOT NULL,
-                    asset_type NVARCHAR(20) NOT NULL,
-                    stop_loss FLOAT NULL,
-                    take_profit FLOAT NULL,
-                    updated_at DATETIME DEFAULT GETDATE(),
-                    UNIQUE(asset, asset_type)
+                    symbol NVARCHAR(20) NOT NULL,
+                    target_price FLOAT NOT NULL,
+                    direction NVARCHAR(10) NOT NULL,
+                    is_active BIT DEFAULT 1,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    notified_at DATETIME NULL
                 )
             """)
+
             self.conn.commit()
             cursor.close()
             return True
@@ -113,14 +141,63 @@ class DatabaseManager:
         except Exception:
             return False
 
-    def save_transaction(self, asset: str, asset_type: str, side: str, quantity: float, price: float, realized_pnl: float = 0.0) -> bool:
+    # ── Portfolio helpers ──────────────────────────────────────────────
+
+    def get_or_create_portfolio(self, symbol: str, asset_type: str) -> Optional[int]:
+        """Find existing portfolio or create new one. Returns portfolio_id."""
+        if not self.is_connected():
+            return None
+        try:
+            cursor = self.conn.cursor()
+            symbol = symbol.upper()
+            cursor.execute(
+                "SELECT id FROM portfolios WHERE symbol = ? AND asset_type = ?",
+                (symbol, asset_type)
+            )
+            row = cursor.fetchone()
+            if row:
+                cursor.close()
+                return row[0]
+            cursor.execute(
+                "INSERT INTO portfolios (symbol, asset_type) OUTPUT INSERTED.id VALUES (?, ?)",
+                (symbol, asset_type)
+            )
+            portfolio_id = cursor.fetchone()[0]
+            self.conn.commit()
+            cursor.close()
+            return portfolio_id
+        except Exception:
+            return None
+
+    def delete_portfolio(self, symbol: str, asset_type: str) -> bool:
+        """Delete portfolio and CASCADE delete all its transactions."""
         if not self.is_connected():
             return False
         try:
             cursor = self.conn.cursor()
             cursor.execute(
-                "INSERT INTO transactions (asset, asset_type, side, quantity, price, realized_pnl) VALUES (?, ?, ?, ?, ?, ?)",
-                (asset.upper(), asset_type, side, quantity, price, realized_pnl)
+                "DELETE FROM portfolios WHERE symbol = ? AND asset_type = ?",
+                (symbol.upper(), asset_type)
+            )
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception:
+            return False
+
+    # ── Transactions ───────────────────────────────────────────────────
+
+    def save_transaction(self, symbol: str, asset_type: str, side: str, quantity: float, price: float, realized_pnl: float = 0.0) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            portfolio_id = self.get_or_create_portfolio(symbol, asset_type)
+            if portfolio_id is None:
+                return False
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "INSERT INTO transactions (portfolio_id, symbol, side, quantity, price, realized_pnl) VALUES (?, ?, ?, ?, ?, ?)",
+                (portfolio_id, symbol.upper(), side, quantity, price, realized_pnl)
             )
             self.conn.commit()
             cursor.close()
@@ -133,7 +210,12 @@ class DatabaseManager:
             return []
         try:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT asset, asset_type, side, quantity, price, realized_pnl, created_at FROM transactions ORDER BY id")
+            cursor.execute("""
+                SELECT t.symbol, p.asset_type, t.side, t.quantity, t.price, t.realized_pnl, t.created_at
+                FROM transactions t
+                JOIN portfolios p ON t.portfolio_id = p.id
+                ORDER BY t.id
+            """)
             rows = cursor.fetchall()
             cursor.close()
             transactions = []
@@ -151,78 +233,26 @@ class DatabaseManager:
         except Exception:
             return []
 
-    def save_alert(self, asset: str, asset_type: str, stop_loss: Optional[float], take_profit: Optional[float]) -> bool:
-        if not self.is_connected():
-            return False
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                IF EXISTS (SELECT 1 FROM alerts WHERE asset = ? AND asset_type = ?)
-                    UPDATE alerts SET stop_loss = ?, take_profit = ?, updated_at = GETDATE() WHERE asset = ? AND asset_type = ?
-                ELSE
-                    INSERT INTO alerts (asset, asset_type, stop_loss, take_profit) VALUES (?, ?, ?, ?)
-            """, (asset.upper(), asset_type, stop_loss, take_profit, asset.upper(), asset_type, asset.upper(), asset_type, stop_loss, take_profit))
-            self.conn.commit()
-            cursor.close()
-            return True
-        except Exception:
-            return False
-
-    def load_alerts(self) -> Dict[str, Dict]:
-        if not self.is_connected():
-            return {}
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT asset, asset_type, stop_loss, take_profit FROM alerts")
-            rows = cursor.fetchall()
-            cursor.close()
-            alerts = {}
-            for row in rows:
-                key = f"{row[0]}|{row[1]}"
-                alerts[key] = {"stop_loss": row[2], "take_profit": row[3]}
-            return alerts
-        except Exception:
-            return {}
-
-    def delete_alert(self, asset: str, asset_type: str) -> bool:
-        if not self.is_connected():
-            return False
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM alerts WHERE asset = ? AND asset_type = ?", (asset.upper(), asset_type))
-            self.conn.commit()
-            cursor.close()
-            return True
-        except Exception:
-            return False
-
-    def delete_transactions(self, asset: str, asset_type: str) -> bool:
-        if not self.is_connected():
-            return False
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM transactions WHERE asset = ? AND asset_type = ?", (asset.upper(), asset_type))
-            self.conn.commit()
-            cursor.close()
-            return True
-        except Exception:
-            return False
-
-    def get_transaction_history(self, asset: Optional[str] = None, limit: int = 100) -> List[Dict]:
+    def get_transaction_history(self, symbol: Optional[str] = None, limit: int = 100) -> List[Dict]:
         if not self.is_connected():
             return []
         try:
             cursor = self.conn.cursor()
-            if asset:
-                cursor.execute(
-                    "SELECT TOP (?) id, asset, asset_type, side, quantity, price, realized_pnl, created_at FROM transactions WHERE asset = ? ORDER BY id DESC",
-                    (limit, asset.upper())
-                )
+            if symbol:
+                cursor.execute("""
+                    SELECT TOP (?) t.id, t.symbol, p.asset_type, t.side, t.quantity, t.price, t.realized_pnl, t.created_at
+                    FROM transactions t
+                    JOIN portfolios p ON t.portfolio_id = p.id
+                    WHERE t.symbol = ?
+                    ORDER BY t.id DESC
+                """, (limit, symbol.upper()))
             else:
-                cursor.execute(
-                    "SELECT TOP (?) id, asset, asset_type, side, quantity, price, realized_pnl, created_at FROM transactions ORDER BY id DESC",
-                    (limit,)
-                )
+                cursor.execute("""
+                    SELECT TOP (?) t.id, t.symbol, p.asset_type, t.side, t.quantity, t.price, t.realized_pnl, t.created_at
+                    FROM transactions t
+                    JOIN portfolios p ON t.portfolio_id = p.id
+                    ORDER BY t.id DESC
+                """, (limit,))
             rows = cursor.fetchall()
             cursor.close()
             history = []
@@ -240,6 +270,86 @@ class DatabaseManager:
             return history
         except Exception:
             return []
+
+    # ── Price Alerts ───────────────────────────────────────────────────
+
+    def save_price_alert(self, symbol: str, target_price: float, direction: str) -> bool:
+        """Create or update a price alert. direction: 'above' or 'below'."""
+        if not self.is_connected():
+            return False
+        try:
+            cursor = self.conn.cursor()
+            symbol = symbol.upper()
+            cursor.execute("""
+                IF EXISTS (SELECT 1 FROM price_alerts WHERE symbol = ? AND direction = ?)
+                    UPDATE price_alerts SET target_price = ?, is_active = 1, notified_at = NULL, created_at = GETDATE() WHERE symbol = ? AND direction = ?
+                ELSE
+                    INSERT INTO price_alerts (symbol, target_price, direction) VALUES (?, ?, ?)
+            """, (symbol, direction, target_price, symbol, direction, symbol, target_price, direction))
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception:
+            return False
+
+    def load_price_alerts(self) -> List[Dict]:
+        if not self.is_connected():
+            return []
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, symbol, target_price, direction, is_active, created_at, notified_at FROM price_alerts WHERE is_active = 1")
+            rows = cursor.fetchall()
+            cursor.close()
+            alerts = []
+            for row in rows:
+                alerts.append({
+                    "id": row[0],
+                    "symbol": row[1],
+                    "target_price": row[2],
+                    "direction": row[3],
+                    "is_active": row[4],
+                    "created_at": row[5],
+                    "notified_at": row[6],
+                })
+            return alerts
+        except Exception:
+            return []
+
+    def mark_alert_notified(self, alert_id: int) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("UPDATE price_alerts SET notified_at = GETDATE() WHERE id = ?", (alert_id,))
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception:
+            return False
+
+    def delete_price_alert(self, alert_id: int) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM price_alerts WHERE id = ?", (alert_id,))
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception:
+            return False
+
+    def delete_price_alerts_by_symbol(self, symbol: str) -> bool:
+        if not self.is_connected():
+            return False
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM price_alerts WHERE symbol = ?", (symbol.upper(),))
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception:
+            return False
 
     def close(self) -> None:
         if self.conn:

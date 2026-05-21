@@ -81,6 +81,7 @@ class PortfolioApp:
         self.log_queue: queue.Queue = queue.Queue()
         self.running = False
         self.alert_state: dict = {}
+        self.price_alerts: list = []
         self._lock = threading.Lock()
         self.theme_name = self._load_theme_pref()
         self.t = THEMES[self.theme_name]
@@ -169,13 +170,13 @@ class PortfolioApp:
         table_frame = ttk.Frame(paned)
         paned.add(table_frame, weight=3)
 
-        cols = ("asset", "type", "qty", "price", "avg", "value", "realized", "unrealized", "total", "sl", "tp")
+        cols = ("asset", "type", "qty", "price", "avg", "value", "realized", "unrealized", "total")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=8)
         headings = [
             ("asset", "Tài sản", 80), ("type", "Loại", 70), ("qty", "Số lượng", 100),
             ("price", "Giá hiện tại", 110), ("avg", "Giá vốn", 100), ("value", "Giá trị", 120),
             ("realized", "PnL thực", 110), ("unrealized", "PnL chưa thực", 110),
-            ("total", "Tổng PnL", 110), ("sl", "Stop-loss", 90), ("tp", "Take-profit", 90),
+            ("total", "Tổng PnL", 110),
         ]
         for key, label, width in headings:
             self.tree.heading(key, text=label)
@@ -212,13 +213,13 @@ class PortfolioApp:
         ttk.Label(self.form_frame, text="Giá giao dịch:").grid(row=2, column=0, sticky="w", padx=4, pady=4)
         self.price_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
         self.price_entry.grid(row=2, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(self.form_frame, text="Stop-loss:").grid(row=2, column=2, sticky="w", padx=(12, 4), pady=4)
-        self.sl_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
-        self.sl_entry.grid(row=2, column=3, sticky="w", padx=4, pady=4)
 
-        ttk.Label(self.form_frame, text="Take-profit:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
-        self.tp_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
-        self.tp_entry.grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(self.form_frame, text="Giá mục tiêu:").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        self.target_price_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
+        self.target_price_entry.grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(self.form_frame, text="Hướng:").grid(row=3, column=2, sticky="w", padx=(12, 4), pady=4)
+        self.alert_direction = tk.StringVar(value="above")
+        ttk.Combobox(self.form_frame, textvariable=self.alert_direction, values=["above", "below"], width=10, state="readonly").grid(row=3, column=3, sticky="w", padx=4, pady=4)
 
         btn_frame = ttk.Frame(left_panel)
         btn_frame.pack(fill="x", pady=(0, 6))
@@ -227,7 +228,7 @@ class PortfolioApp:
         row1.pack(fill="x", pady=2)
         self.btn_add = ttk.Button(row1, text="Thêm giao dịch", style="Accent.TButton", command=self.on_add_transaction)
         self.btn_add.pack(side="left", padx=3)
-        self.btn_threshold = ttk.Button(row1, text="Cập nhật ngưỡng", command=self.on_set_thresholds)
+        self.btn_threshold = ttk.Button(row1, text="Đặt cảnh báo giá", command=self.on_set_thresholds)
         self.btn_threshold.pack(side="left", padx=3)
         self.btn_delete = ttk.Button(row1, text="Xoá vị thế", style="Red.TButton", command=self.on_delete_position)
         self.btn_delete.pack(side="left", padx=3)
@@ -376,28 +377,18 @@ class PortfolioApp:
 
     def on_set_thresholds(self) -> None:
         asset = self.asset_entry.get().strip().upper()
-        asset_type = self.asset_type.get().strip()
         if not asset:
-            messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập mã tài sản để đặt ngưỡng.")
+            messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập mã tài sản để đặt cảnh báo.")
             return
-        stop_loss = self._parse_optional_float(self.sl_entry.get())
-        take_profit = self._parse_optional_float(self.tp_entry.get())
-        if stop_loss is not None and stop_loss <= 0:
-            messagebox.showerror("Lỗi dữ liệu", "Stop-loss phải lớn hơn 0.")
+        target_price = self._parse_optional_float(self.target_price_entry.get())
+        if target_price is None or target_price <= 0:
+            messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập giá mục tiêu hợp lệ (> 0).")
             return
-        if take_profit is not None and take_profit <= 0:
-            messagebox.showerror("Lỗi dữ liệu", "Take-profit phải lớn hơn 0.")
-            return
-        try:
-            self.portfolio.set_alert(asset, asset_type, stop_loss, take_profit)
-        except KeyError as err:
-            messagebox.showerror("Lỗi", str(err))
-            return
-        self.log(f"Đã cập nhật ngưỡng cho {asset}: SL={stop_loss} TP={take_profit}")
-        self.refresh_table()
+        direction = self.alert_direction.get()
         if self.use_db and self.db:
-            self.db.save_alert(asset, asset_type, stop_loss, take_profit)
-        self._save_data()
+            self.db.save_price_alert(asset, target_price, direction)
+        self.log(f"Đã đặt cảnh báo cho {asset}: giá {direction} {target_price}")
+        self._load_price_alerts()
 
     def on_delete_position(self) -> None:
         asset = self.asset_entry.get().strip().upper()
@@ -416,8 +407,8 @@ class PortfolioApp:
         self.log(f"Đã xoá vị thế {asset} ({asset_type})")
         self.refresh_table()
         if self.use_db and self.db:
-            self.db.delete_transactions(asset, asset_type)
-            self.db.delete_alert(asset, asset_type)
+            self.db.delete_portfolio(asset, asset_type)
+            self.db.delete_price_alerts_by_symbol(asset)
         self._save_data()
 
     def on_view_history(self) -> None:
@@ -612,8 +603,6 @@ class PortfolioApp:
                 f"{position.average_cost:.2f}", f"{position.current_value:.2f}",
                 f"{position.realized_pnl:+.2f}", f"{position.unrealized_pnl:+.2f}",
                 f"{position.total_pnl:+.2f}",
-                f"{position.stop_loss:.2f}" if position.stop_loss is not None else "-",
-                f"{position.take_profit:.2f}" if position.take_profit is not None else "-",
             ))
         total = self.portfolio.total_pnl()
         pnl_color = self.t["green"] if total > 0 else (self.t["red"] if total < 0 else self.t["fg"])
@@ -649,40 +638,40 @@ class PortfolioApp:
             time.sleep(POLL_INTERVAL)
 
     def _check_alert(self, position) -> None:
-        if position.quantity_on_hand <= 0:
-            return
-        key = (position.asset, position.asset_type)
         current = position.current_price
+        symbol = position.asset.upper()
         with self._lock:
-            if position.stop_loss is not None and current <= position.stop_loss:
-                self._send_alert(position, "stop_loss")
-                self.alert_state[key] = "stop_loss"
-            elif position.take_profit is not None and current >= position.take_profit:
-                self._send_alert(position, "take_profit")
-                self.alert_state[key] = "take_profit"
-            else:
-                self.alert_state.pop(key, None)
+            for alert in self.price_alerts:
+                if alert["symbol"] != symbol or not alert["is_active"]:
+                    continue
+                triggered = False
+                if alert["direction"] == "below" and current <= alert["target_price"]:
+                    triggered = True
+                elif alert["direction"] == "above" and current >= alert["target_price"]:
+                    triggered = True
+                if triggered:
+                    alert_key = (alert["id"],)
+                    if self.alert_state.get(alert_key) != "triggered":
+                        self._send_price_alert(position, alert)
+                        self.alert_state[alert_key] = "triggered"
+                        if self.use_db and self.db:
+                            self.db.mark_alert_notified(alert["id"])
 
-    def _send_alert(self, position, reason: str) -> None:
-        key = (position.asset, position.asset_type)
-        with self._lock:
-            if self.alert_state.get(key) == reason:
-                return
-        reason_label = "cắt lỗ" if reason == "stop_loss" else "chốt lời"
+    def _send_price_alert(self, position, alert: dict) -> None:
+        direction_label = "vượt trên" if alert["direction"] == "above" else "rớt dưới"
         message = (
-            f"Cảnh báo {reason_label} cho {position.asset} ({position.asset_type})\n"
+            f"Cảnh báo giá cho {position.asset} ({position.asset_type})\n"
             f"Giá hiện tại: {position.current_price:.2f}\n"
+            f"Đã {direction_label} mục tiêu: {alert['target_price']:.2f}\n"
             f"Số lượng: {position.quantity_on_hand:.6f}\n"
-            f"Stop-loss: {position.stop_loss}\n"
-            f"Take-profit: {position.take_profit}\n"
             f"Unrealized PnL: {position.unrealized_pnl:.2f}\n"
             f"Realized PnL: {position.realized_pnl:.2f}"
         )
         if self.telegram.is_configured():
             self.telegram.send_message(message)
-            self._queue_log(f"Đã gửi cảnh báo Telegram cho {position.asset}: {reason_label}")
+            self._queue_log(f"Đã gửi cảnh báo Telegram cho {position.asset}: giá {direction_label} {alert['target_price']}")
         else:
-            self._queue_log(f"Cảnh báo {reason_label} cho {position.asset}, nhưng Telegram chưa cấu hình.")
+            self._queue_log(f"Cảnh báo cho {position.asset}: giá {direction_label} {alert['target_price']} (Telegram chưa cấu hình)")
 
     def _queue_log(self, message: str) -> None:
         self.log_queue.put(message)
@@ -718,12 +707,10 @@ class PortfolioApp:
     def _save_data(self) -> None:
         if self.use_db and self.db and self.db.is_connected():
             return
-        data = {"transactions": [], "alerts": {}}
+        data = {"transactions": []}
         for key, pos in self.portfolio.positions.items():
             for lot in pos.lots:
                 data["transactions"].append({"asset": pos.asset, "asset_type": pos.asset_type, "side": "buy", "quantity": lot.quantity, "price": lot.price})
-            if pos.stop_loss is not None or pos.take_profit is not None:
-                data["alerts"][key] = {"stop_loss": pos.stop_loss, "take_profit": pos.take_profit}
             data["transactions"].append({"asset": pos.asset, "asset_type": pos.asset_type, "realized_pnl": pos.realized_pnl, "_realized_only": True})
         try:
             with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -736,6 +723,10 @@ class PortfolioApp:
             self._load_from_db()
             return
         self._load_from_json()
+
+    def _load_price_alerts(self) -> None:
+        if self.use_db and self.db and self.db.is_connected():
+            self.price_alerts = self.db.load_price_alerts()
 
     def _load_from_db(self) -> None:
         transactions = self.db.load_transactions()
@@ -750,13 +741,9 @@ class PortfolioApp:
                 key = self.portfolio._key(tx["asset"], tx["asset_type"])
                 if key in self.portfolio.positions:
                     self.portfolio.positions[key].realized_pnl += tx["realized_pnl"]
-        alerts = self.db.load_alerts()
-        for key, alert in alerts.items():
-            if key in self.portfolio.positions:
-                self.portfolio.positions[key].stop_loss = alert.get("stop_loss")
-                self.portfolio.positions[key].take_profit = alert.get("take_profit")
+        self.price_alerts = self.db.load_price_alerts()
         self.refresh_table()
-        self.log(f"Đã tải dữ liệu từ SQL Server ({len(transactions)} giao dịch)")
+        self.log(f"Đã tải dữ liệu từ SQL Server ({len(transactions)} giao dịch, {len(self.price_alerts)} cảnh báo)")
 
     def _load_from_json(self) -> None:
         if not DATA_FILE.exists():
@@ -775,10 +762,6 @@ class PortfolioApp:
                 continue
             transaction = Transaction(asset=tx["asset"], asset_type=tx["asset_type"], quantity=tx["quantity"], price=tx["price"], side=tx["side"], date=datetime.now())
             self.portfolio.add_transaction(transaction)
-        for key, alert in data.get("alerts", {}).items():
-            if key in self.portfolio.positions:
-                self.portfolio.positions[key].stop_loss = alert.get("stop_loss")
-                self.portfolio.positions[key].take_profit = alert.get("take_profit")
         self.refresh_table()
         self.log(f"Đã tải dữ liệu từ {DATA_FILE.name}")
 
@@ -805,11 +788,12 @@ class PortfolioApp:
    - Nhập số lượng và giá giao dịch
    - Nhấn "Thêm giao dịch"
 
-2. ĐẶT NGƯỠNG CẢNH BAO
+2. ĐẶT CẢNH BÁO GIÁ
    - Nhập mã tài sản đã thêm
-   - Nhập Stop-loss (giá cắt lỗ) và Take-profit (giá chốt lời)
-   - Nhấn "Cập nhật ngưỡng"
-   - Khi giá chạm ngưỡng, Telegram sẽ tự động cảnh báo
+   - Nhập Giá mục tiêu
+   - Chọn Hướng: above (cảnh báo khi giá vượt trên) hoặc below (cảnh báo khi giá rớt dưới)
+   - Nhấn "Đặt cảnh báo giá"
+   - Khi giá chạm mục tiêu, Telegram sẽ tự động cảnh báo
 
 3. CẬP NHẬT GIÁ
    - Nhấn "Bắt đầu cập nhật giá" để tự động lấy giá mỗi 10 giây
@@ -823,13 +807,13 @@ class PortfolioApp:
 
 5. TELEGRAM
    - "Test Telegram": Gửi tin nhắn kiểm tra kết nối
-   - Tự động cảnh báo khi giá chạm stop-loss/take-profit
+   - Tự động cảnh báo khi giá chạm mục tiêu
 
 6. GIAO DIỆN SÁNG/TỐI
    - Nhấn nút "Light Mode" / "Dark Mode" ở góc phải để chuyển theme
 
 7. LƯU DỮ LIỆU
-   - Dữ liệu tự động lưu khi thêm giao dịch hoặc đặt ngưỡng
+   - Dữ liệu tự động lưu khi thêm giao dịch
    - Nhấn Ctrl+S để lưu thủ công
    - Dữ liệu được lưu trong portfolio_data.json""")
         text.configure(state="disabled")

@@ -25,8 +25,6 @@ class AssetPosition:
     lots: List[BuyLot] = field(default_factory=list)
     realized_pnl: float = 0.0
     current_price: float = 0.0
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
 
     def add_transaction(self, transaction: Transaction) -> None:
         if transaction.side == "buy":
@@ -92,8 +90,6 @@ class AssetPosition:
             "realized_pnl": self.realized_pnl,
             "unrealized_pnl": self.unrealized_pnl,
             "total_pnl": self.total_pnl,
-            "stop_loss": self.stop_loss,
-            "take_profit": self.take_profit,
         }
 
 class Portfolio:
@@ -112,15 +108,6 @@ class Portfolio:
             position = self.positions[key]
             position.add_transaction(transaction)
             return position
-
-    def set_alert(self, asset: str, asset_type: str, stop_loss: Optional[float], take_profit: Optional[float]) -> None:
-        with self._lock:
-            key = self._key(asset, asset_type)
-            if key not in self.positions:
-                raise KeyError(f"Vị trí không tồn tại: {asset} ({asset_type})")
-            position = self.positions[key]
-            position.stop_loss = stop_loss
-            position.take_profit = take_profit
 
     def all_positions(self) -> List[AssetPosition]:
         with self._lock:
