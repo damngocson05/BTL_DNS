@@ -88,18 +88,30 @@ class PortfolioApp:
         self.use_db = False
         self.db: Optional[DatabaseManager] = None
 
-        if SQL_SERVER:
-            self.db = DatabaseManager(SQL_SERVER, SQL_DATABASE, SQL_TRUSTED_CONNECTION)
-            if self.db.setup_database():
-                self.use_db = True
-
         self._build_menu()
         self._build_ui()
         self._apply_theme()
-        self._load_data()
+
+        if SQL_SERVER:
+            self.db = DatabaseManager(SQL_SERVER, SQL_DATABASE, SQL_TRUSTED_CONNECTION)
+            threading.Thread(target=self._init_db, daemon=True).start()
+        else:
+            self._load_data()
         self.root.after(1000, self._process_queue)
         self.root.after(200, self._process_log_queue)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _init_db(self) -> None:
+        try:
+            if self.db.setup_database():
+                self.use_db = True
+                self.root.after(0, self._load_data)
+            else:
+                self.root.after(0, self._load_from_json)
+                self._queue_log("Không kết nối được SQL Server, dùng file JSON.")
+        except Exception as exc:
+            self.root.after(0, self._load_from_json)
+            self._queue_log(f"Lỗi kết nối DB: {exc}")
 
     def _load_theme_pref(self) -> str:
         if THEME_FILE.exists():
