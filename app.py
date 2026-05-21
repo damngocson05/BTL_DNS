@@ -230,8 +230,8 @@ class PortfolioApp:
         self.target_price_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
         self.target_price_entry.grid(row=3, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(self.form_frame, text="Hướng:").grid(row=3, column=2, sticky="w", padx=(12, 4), pady=4)
-        self.alert_direction = tk.StringVar(value="above")
-        ttk.Combobox(self.form_frame, textvariable=self.alert_direction, values=["above", "below"], width=10, state="readonly").grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        self.alert_direction = tk.StringVar(value="Chốt lời")
+        ttk.Combobox(self.form_frame, textvariable=self.alert_direction, values=["Chốt lời", "Cắt lỗ"], width=10, state="readonly").grid(row=3, column=3, sticky="w", padx=4, pady=4)
 
         btn_frame = ttk.Frame(left_panel)
         btn_frame.pack(fill="x", pady=(0, 6))
@@ -396,10 +396,11 @@ class PortfolioApp:
         if target_price is None or target_price <= 0:
             messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập giá mục tiêu hợp lệ (> 0).")
             return
-        direction = self.alert_direction.get()
+        direction_raw = self.alert_direction.get()
+        direction = "above" if direction_raw == "Chốt lời" else "below"
         if self.use_db and self.db:
             self.db.save_price_alert(asset, target_price, direction)
-        self.log(f"Đã đặt cảnh báo cho {asset}: giá {direction} {target_price}")
+        self.log(f"Đã đặt cảnh báo cho {asset}: {direction_raw} @ {target_price}")
         self._load_price_alerts()
 
     def on_delete_position(self) -> None:
@@ -670,20 +671,20 @@ class PortfolioApp:
                             self.db.mark_alert_notified(alert["id"])
 
     def _send_price_alert(self, position, alert: dict) -> None:
-        direction_label = "vượt trên" if alert["direction"] == "above" else "rớt dưới"
+        direction_label = "Chốt lời" if alert["direction"] == "above" else "Cắt lỗ"
         message = (
-            f"Cảnh báo giá cho {position.asset} ({position.asset_type})\n"
+            f"[{direction_label}] {position.asset} ({position.asset_type})\n"
             f"Giá hiện tại: {position.current_price:.2f}\n"
-            f"Đã {direction_label} mục tiêu: {alert['target_price']:.2f}\n"
+            f"Mục tiêu: {alert['target_price']:.2f}\n"
             f"Số lượng: {position.quantity_on_hand:.6f}\n"
             f"Unrealized PnL: {position.unrealized_pnl:.2f}\n"
             f"Realized PnL: {position.realized_pnl:.2f}"
         )
         if self.telegram.is_configured():
             self.telegram.send_message(message)
-            self._queue_log(f"Đã gửi cảnh báo Telegram cho {position.asset}: giá {direction_label} {alert['target_price']}")
+            self._queue_log(f"Đã gửi cảnh báo Telegram cho {position.asset}: {direction_label} @ {alert['target_price']}")
         else:
-            self._queue_log(f"Cảnh báo cho {position.asset}: giá {direction_label} {alert['target_price']} (Telegram chưa cấu hình)")
+            self._queue_log(f"Cảnh báo cho {position.asset}: {direction_label} @ {alert['target_price']} (Telegram chưa cấu hình)")
 
     def _queue_log(self, message: str) -> None:
         self.log_queue.put(message)
@@ -803,7 +804,7 @@ class PortfolioApp:
 2. ĐẶT CẢNH BÁO GIÁ
    - Nhập mã tài sản đã thêm
    - Nhập Giá mục tiêu
-   - Chọn Hướng: above (cảnh báo khi giá vượt trên) hoặc below (cảnh báo khi giá rớt dưới)
+   - Chọn Hướng: Chốt lời (cảnh báo khi giá vượt trên) hoặc Cắt lỗ (cảnh báo khi giá rớt dưới)
    - Nhấn "Đặt cảnh báo giá"
    - Khi giá chạm mục tiêu, Telegram sẽ tự động cảnh báo
 
