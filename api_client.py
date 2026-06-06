@@ -72,21 +72,6 @@ class PriceApiClient:
             raise ValueError(f"Không lấy được giá cho {symbol} từ Binance")
         return float(data["price"])
 
-    def get_crypto_ticker_24h(self, symbol: str) -> dict:
-        symbol_key = symbol.strip().upper()
-        trading_pair = f"{symbol_key}USDT"
-        url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
-        params = {"symbol": trading_pair}
-        data = self._request_with_retry(url, params)
-        return {
-            "symbol": data["symbol"],
-            "price": float(data["lastPrice"]),
-            "change_pct": float(data["priceChangePercent"]),
-            "high": float(data["highPrice"]),
-            "low": float(data["lowPrice"]),
-            "volume": float(data["volume"]),
-        }
-
     def get_klines(self, symbol: str, interval: str = "1h", limit: int = 100) -> pd.DataFrame:
         symbol_key = symbol.strip().upper()
         trading_pair = f"{symbol_key}USDT"
@@ -177,9 +162,3 @@ class PriceApiClient:
             })
         return orders
 
-    def get_exchange_info(self, symbol: Optional[str] = None) -> dict:
-        url = f"{BINANCE_BASE}/api/v3/exchangeInfo"
-        params = {}
-        if symbol:
-            params["symbol"] = symbol.strip().upper() + "USDT"
-        return self._request_with_retry(url, params)
