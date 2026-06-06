@@ -71,9 +71,9 @@ THEMES = {
 class PortfolioApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Portfolio Manager & Price Alert")
-        self.root.geometry("1200x750")
-        self.root.minsize(1000, 600)
+        self.root.title("Quản lý Danh mục & Cảnh báo Giá")
+        self.root.geometry("1280x800")
+        self.root.minsize(1050, 650)
         self.portfolio = Portfolio()
         self.api_client = PriceApiClient(api_key=BINANCE_API_KEY, api_secret=BINANCE_API_SECRET)
         self.telegram = TelegramNotifier(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
@@ -111,7 +111,7 @@ class PortfolioApp:
                 self._queue_log("Không kết nối được SQL Server, dùng file JSON.")
         except Exception as exc:
             self.root.after(0, self._load_from_json)
-            self._queue_log(f"Lỗi kết nối DB: {exc}")
+            self._queue_log(f"Lỗi kết nối cơ sở dữ liệu: {exc}")
 
     def _load_theme_pref(self) -> str:
         if THEME_FILE.exists():
@@ -127,6 +127,8 @@ class PortfolioApp:
         except Exception:
             pass
 
+    # ── Menu ───────────────────────────────────────────────────────────
+
     def _build_menu(self) -> None:
         self.menubar = tk.Menu(self.root, borderwidth=0)
         self.root.config(menu=self.menubar)
@@ -140,7 +142,7 @@ class PortfolioApp:
 
         self.tools_menu = tk.Menu(self.menubar, tearoff=0)
         self.tools_menu.add_command(label="Làm mới giá ngay", command=self.on_refresh_now)
-        self.tools_menu.add_command(label="Test Telegram", command=self.on_test_telegram)
+        self.tools_menu.add_command(label="Kiểm tra Telegram", command=self.on_test_telegram)
         self.tools_menu.add_separator()
         self.tools_menu.add_command(label="Xem số dư Binance", command=self.on_binance_balance)
         self.tools_menu.add_command(label="Lịch sử giao dịch Binance", command=self.on_binance_trades)
@@ -154,31 +156,37 @@ class PortfolioApp:
 
         self.root.bind("<Control-s>", lambda e: self._save_data())
 
+    # ── Giao diện chính ────────────────────────────────────────────────
+
     def _build_ui(self) -> None:
         self.main = ttk.Frame(self.root, padding=8)
         self.main.grid(row=0, column=0, sticky="nsew")
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
+        # Thanh tiêu đề màu accent
         self.header = tk.Frame(self.main, height=4)
         self.header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.header.grid_propagate(False)
 
+        # Dòng tiêu đề + nút đổi theme
         self.title_frame = tk.Frame(self.main)
         self.title_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        self.title_label = tk.Label(self.title_frame, text="PORTFOLIO MANAGER", font=("Segoe UI", 18, "bold"))
+        self.title_label = tk.Label(self.title_frame, text="QUẢN LÝ DANH MỤC ĐẦU TƯ", font=("Segoe UI", 18, "bold"))
         self.title_label.pack(side="left")
-        self.subtitle_label = tk.Label(self.title_frame, text="  Crypto & Stock Price Alert System", font=("Segoe UI", 11))
+        self.subtitle_label = tk.Label(self.title_frame, text="  Cảnh báo giá Tiền điện tử & Cổ phiếu", font=("Segoe UI", 11))
         self.subtitle_label.pack(side="left", padx=(8, 0), pady=(6, 0))
 
-        self.theme_btn = tk.Button(self.title_frame, text="Light Mode", font=("Segoe UI", 9), relief="flat", cursor="hand2", command=self.toggle_theme)
+        self.theme_btn = tk.Button(self.title_frame, text="Giao diện sáng", font=("Segoe UI", 9), relief="flat", cursor="hand2", command=self.toggle_theme)
         self.theme_btn.pack(side="right", padx=8)
 
+        # PanedWindow: bảng trên + form dưới
         paned = ttk.PanedWindow(self.main, orient="vertical")
         paned.grid(row=2, column=0, sticky="nsew", pady=(0, 6))
         self.main.rowconfigure(2, weight=1)
         self.main.columnconfigure(0, weight=1)
 
+        # === Bảng danh mục (phía trên) ===
         table_frame = ttk.Frame(paned)
         paned.add(table_frame, weight=3)
 
@@ -187,8 +195,8 @@ class PortfolioApp:
         headings = [
             ("asset", "Tài sản", 80), ("type", "Loại", 70), ("qty", "Số lượng", 100),
             ("price", "Giá hiện tại", 110), ("avg", "Giá vốn", 100), ("value", "Giá trị", 120),
-            ("realized", "PnL thực", 110), ("unrealized", "PnL chưa thực", 110),
-            ("total", "Tổng PnL", 110),
+            ("realized", "Lãi/Lỗ thực", 110), ("unrealized", "Lãi/Lỗ chờ", 110),
+            ("total", "Tổng Lãi/Lỗ", 110),
         ]
         for key, label, width in headings:
             self.tree.heading(key, text=label)
@@ -199,12 +207,14 @@ class PortfolioApp:
         self.tree.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
+        # === Phần dưới: trái (form + nút) + phải (nhật ký) ===
         bottom = ttk.Frame(paned)
         paned.add(bottom, weight=2)
 
         left_panel = ttk.Frame(bottom)
         left_panel.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
+        # --- Form giao dịch ---
         self.form_frame = ttk.LabelFrame(left_panel, text="Giao dịch", padding=10)
         self.form_frame.pack(fill="x", pady=(0, 6))
 
@@ -213,11 +223,15 @@ class PortfolioApp:
         self.asset_entry.grid(row=0, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(self.form_frame, text="Loại:").grid(row=0, column=2, sticky="w", padx=(12, 4), pady=4)
         self.asset_type = tk.StringVar(value="crypto")
-        ttk.Combobox(self.form_frame, textvariable=self.asset_type, values=["crypto", "stock"], width=10, state="readonly").grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.type_combo = ttk.Combobox(self.form_frame, textvariable=self.asset_type, values=["Tiền điện tử", "Cổ phiếu"], width=12, state="readonly")
+        self.type_combo.grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        self.type_combo.set("Tiền điện tử")
 
         ttk.Label(self.form_frame, text="Hình thức:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         self.side = tk.StringVar(value="buy")
-        ttk.Combobox(self.form_frame, textvariable=self.side, values=["buy", "sell"], width=10, state="readonly").grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        self.side_combo = ttk.Combobox(self.form_frame, textvariable=self.side, values=["Mua", "Bán"], width=12, state="readonly")
+        self.side_combo.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        self.side_combo.set("Mua")
         ttk.Label(self.form_frame, text="Số lượng:").grid(row=1, column=2, sticky="w", padx=(12, 4), pady=4)
         self.quantity_entry = ttk.Entry(self.form_frame, width=14, font=("Segoe UI", 10))
         self.quantity_entry.grid(row=1, column=3, sticky="w", padx=4, pady=4)
@@ -231,47 +245,53 @@ class PortfolioApp:
         self.target_price_entry.grid(row=3, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(self.form_frame, text="Hướng:").grid(row=3, column=2, sticky="w", padx=(12, 4), pady=4)
         self.alert_direction = tk.StringVar(value="Chốt lời")
-        ttk.Combobox(self.form_frame, textvariable=self.alert_direction, values=["Chốt lời", "Cắt lỗ"], width=10, state="readonly").grid(row=3, column=3, sticky="w", padx=4, pady=4)
+        ttk.Combobox(self.form_frame, textvariable=self.alert_direction, values=["Chốt lời", "Cắt lỗ"], width=12, state="readonly").grid(row=3, column=3, sticky="w", padx=4, pady=4)
 
+        # --- Hàng nút thao tác ---
         btn_frame = ttk.Frame(left_panel)
         btn_frame.pack(fill="x", pady=(0, 6))
 
         row1 = ttk.Frame(btn_frame)
         row1.pack(fill="x", pady=2)
-        self.btn_add = ttk.Button(row1, text="Thêm giao dịch", style="Accent.TButton", command=self.on_add_transaction)
+        self.btn_add = ttk.Button(row1, text="➕ Thêm giao dịch", style="Accent.TButton", command=self.on_add_transaction)
         self.btn_add.pack(side="left", padx=3)
-        self.btn_threshold = ttk.Button(row1, text="Đặt cảnh báo giá", command=self.on_set_thresholds)
+        self.btn_threshold = ttk.Button(row1, text="🔔 Đặt cảnh báo giá", command=self.on_set_thresholds)
         self.btn_threshold.pack(side="left", padx=3)
-        self.btn_delete = ttk.Button(row1, text="Xoá vị thế", style="Red.TButton", command=self.on_delete_position)
+        self.btn_delete = ttk.Button(row1, text="🗑 Xoá vị thế", style="Red.TButton", command=self.on_delete_position)
         self.btn_delete.pack(side="left", padx=3)
+        self.btn_clear_form = ttk.Button(row1, text="🧹 Xoá trắng", command=self._clear_form)
+        self.btn_clear_form.pack(side="left", padx=3)
 
         row2 = ttk.Frame(btn_frame)
         row2.pack(fill="x", pady=2)
-        self.btn_start = ttk.Button(row2, text="Bắt đầu cập nhật giá", style="Green.TButton", command=self.start_updates)
+        self.btn_start = ttk.Button(row2, text="▶ Bắt đầu cập nhật giá", style="Green.TButton", command=self.start_updates)
         self.btn_start.pack(side="left", padx=3)
-        self.btn_stop = ttk.Button(row2, text="Dừng cập nhật", style="Red.TButton", command=self.stop_updates)
+        self.btn_stop = ttk.Button(row2, text="⏹ Dừng cập nhật", style="Red.TButton", command=self.stop_updates)
         self.btn_stop.pack(side="left", padx=3)
-        ttk.Button(row2, text="Làm mới giá ngay", command=self.on_refresh_now).pack(side="left", padx=3)
-        ttk.Button(row2, text="Test Telegram", command=self.on_test_telegram).pack(side="left", padx=3)
+        ttk.Button(row2, text="🔄 Làm mới giá ngay", command=self.on_refresh_now).pack(side="left", padx=3)
+        ttk.Button(row2, text="📨 Kiểm tra Telegram", command=self.on_test_telegram).pack(side="left", padx=3)
 
+        # --- Khung Binance ---
         self.binance_frame = ttk.LabelFrame(left_panel, text="Binance API", padding=8)
         self.binance_frame.pack(fill="x", pady=(0, 6))
         bin_row = ttk.Frame(self.binance_frame)
         bin_row.pack(fill="x")
-        ttk.Button(bin_row, text="Xem số dư", command=self.on_binance_balance).pack(side="left", padx=3)
-        ttk.Button(bin_row, text="Lịch sử giao dịch", command=self.on_binance_trades).pack(side="left", padx=3)
-        ttk.Button(bin_row, text="Lệnh đang mở", command=self.on_binance_orders).pack(side="left", padx=3)
-        ttk.Button(bin_row, text="Lịch sử DB", command=self.on_view_history).pack(side="left", padx=3)
-        ttk.Button(bin_row, text="Biểu đồ", command=self.on_show_chart).pack(side="left", padx=3)
+        ttk.Button(bin_row, text="💰 Số dư", command=self.on_binance_balance).pack(side="left", padx=3)
+        ttk.Button(bin_row, text="📋 Lịch sử GD", command=self.on_binance_trades).pack(side="left", padx=3)
+        ttk.Button(bin_row, text="📑 Lệnh đang mở", command=self.on_binance_orders).pack(side="left", padx=3)
+        ttk.Button(bin_row, text="🗄 Lịch sử DB", command=self.on_view_history).pack(side="left", padx=3)
+        ttk.Button(bin_row, text="📊 Biểu đồ", command=self.on_show_chart).pack(side="left", padx=3)
         binance_status = "Đã kết nối" if BINANCE_API_KEY else "Chưa cấu hình API key"
         self.binance_status_label = tk.Label(bin_row, text=f"|  {binance_status}", font=("Segoe UI", 9))
         self.binance_status_label.pack(side="left", padx=8)
 
-        self.right_panel = ttk.LabelFrame(bottom, text="Nhật ký", padding=6)
+        # --- Nhật ký (bên phải) ---
+        self.right_panel = ttk.LabelFrame(bottom, text="Nhật ký hoạt động", padding=6)
         self.right_panel.pack(side="right", fill="both", expand=True)
         self.log_text = tk.Text(self.right_panel, state="disabled", wrap="word", font=("Consolas", 10), borderwidth=0)
         self.log_text.pack(fill="both", expand=True)
 
+        # === Thanh trạng thái (dưới cùng) ===
         self.status_frame = tk.Frame(self.root, height=30)
         self.status_frame.grid(row=1, column=0, sticky="ew")
         self.status_frame.grid_propagate(False)
@@ -280,7 +300,7 @@ class PortfolioApp:
         self.tg_label = tk.Label(self.status_frame, text=tg_status, font=("Segoe UI", 9))
         self.tg_label.pack(side="left", padx=12, pady=4)
 
-        self.pnl_label = tk.Label(self.status_frame, text="Tổng PnL: 0.00", font=("Segoe UI", 9, "bold"))
+        self.pnl_label = tk.Label(self.status_frame, text="Tổng Lãi/Lỗ: 0.00", font=("Segoe UI", 9, "bold"))
         self.pnl_label.pack(side="left", padx=12, pady=4)
 
         self.update_status_label = tk.Label(self.status_frame, text="Cập nhật giá: Tắt", font=("Segoe UI", 9))
@@ -289,6 +309,8 @@ class PortfolioApp:
         self.time_label = tk.Label(self.status_frame, text="", font=("Segoe UI", 9))
         self.time_label.pack(side="right", padx=12, pady=4)
         self._update_clock()
+
+    # ── Theme ──────────────────────────────────────────────────────────
 
     def toggle_theme(self) -> None:
         self.theme_name = "light" if self.theme_name == "dark" else "dark"
@@ -350,16 +372,40 @@ class PortfolioApp:
         for m in menus:
             m.configure(bg=t["bg_frame"], fg=t["fg"], activebackground=t["accent"], activeforeground=t["accent_dark"])
 
-        self.theme_btn.configure(text="Light Mode" if self.theme_name == "dark" else "Dark Mode")
+        self.theme_btn.configure(text="Giao diện sáng" if self.theme_name == "dark" else "Giao diện tối")
 
     def _update_clock(self) -> None:
         self.time_label.configure(text=datetime.now().strftime("%H:%M:%S"))
         self.root.after(1000, self._update_clock)
 
+    # ── Chuyển đổi giá trị Combobox ───────────────────────────────────
+
+    def _get_asset_type(self) -> str:
+        """Chuyển giá trị combobox loại tài sản sang giá trị kỹ thuật."""
+        val = self.type_combo.get()
+        return "crypto" if val == "Tiền điện tử" else "stock"
+
+    def _get_side(self) -> str:
+        """Chuyển giá trị combobox hình thức sang giá trị kỹ thuật."""
+        val = self.side_combo.get()
+        return "buy" if val == "Mua" else "sell"
+
+    # ── Xử lý sự kiện ─────────────────────────────────────────────────
+
+    def _clear_form(self) -> None:
+        """Xoá trắng tất cả trường nhập liệu."""
+        self.asset_entry.delete(0, "end")
+        self.quantity_entry.delete(0, "end")
+        self.price_entry.delete(0, "end")
+        self.target_price_entry.delete(0, "end")
+        self.type_combo.set("Tiền điện tử")
+        self.side_combo.set("Mua")
+        self.alert_direction.set("Chốt lời")
+
     def on_add_transaction(self) -> None:
         asset = self.asset_entry.get().strip().upper()
-        asset_type = self.asset_type.get().strip()
-        side = self.side.get().strip()
+        asset_type = self._get_asset_type()
+        side = self._get_side()
         try:
             quantity = float(self.quantity_entry.get())
             price = float(self.price_entry.get())
@@ -381,7 +427,8 @@ class PortfolioApp:
         except ValueError as err:
             messagebox.showerror("Lỗi giao dịch", str(err))
             return
-        self.log(f"Đã thêm {side} {asset} {quantity} @ {price}")
+        side_label = "MUA" if side == "buy" else "BÁN"
+        self.log(f"Đã thêm {side_label} {asset} {quantity} @ {price}")
         self.refresh_table()
         if self.use_db and self.db:
             self.db.save_transaction(asset, asset_type, side, quantity, price)
@@ -394,7 +441,7 @@ class PortfolioApp:
             return
         target_price = self._parse_optional_float(self.target_price_entry.get())
         if target_price is None or target_price <= 0:
-            messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập giá mục tiêu hợp lệ (> 0).")
+            messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập giá mục tiêu hợp lệ (lớn hơn 0).")
             return
         direction_raw = self.alert_direction.get()
         direction = "above" if direction_raw == "Chốt lời" else "below"
@@ -405,7 +452,7 @@ class PortfolioApp:
 
     def on_delete_position(self) -> None:
         asset = self.asset_entry.get().strip().upper()
-        asset_type = self.asset_type.get().strip()
+        asset_type = self._get_asset_type()
         if not asset:
             messagebox.showerror("Lỗi dữ liệu", "Vui lòng nhập mã tài sản để xoá.")
             return
@@ -413,7 +460,7 @@ class PortfolioApp:
         if key not in self.portfolio.positions:
             messagebox.showerror("Lỗi", f"Không tìm thấy vị thế {asset} ({asset_type}).")
             return
-        if not messagebox.askyesno("Xác nhận", f"Xoá toàn bộ vị thế {asset} ({asset_type})?"):
+        if not messagebox.askyesno("Xác nhận xoá", f"Bạn có chắc muốn xoá toàn bộ vị thế {asset} ({asset_type})?"):
             return
         with self.portfolio._lock:
             del self.portfolio.positions[key]
@@ -426,12 +473,12 @@ class PortfolioApp:
 
     def on_view_history(self) -> None:
         if not self.use_db or not self.db or not self.db.is_connected():
-            messagebox.showwarning("SQL Server", "Chưa kết nối SQL Server. Cần cấu hình trong config.py")
+            messagebox.showwarning("Cơ sở dữ liệu", "Chưa kết nối SQL Server. Cần cấu hình trong config.py")
             return
         asset = self.asset_entry.get().strip().upper()
         history = self.db.get_transaction_history(asset if asset else None, limit=50)
         if not history:
-            self.log("Không có lịch sử giao dịch trong database.")
+            self.log("Không có lịch sử giao dịch trong cơ sở dữ liệu.")
             return
         win = tk.Toplevel(self.root)
         win.title("Lịch sử giao dịch (SQL Server)")
@@ -439,7 +486,7 @@ class PortfolioApp:
         win.configure(bg=self.t["bg"])
         cols = ("id", "asset", "type", "side", "qty", "price", "pnl", "date")
         tree = ttk.Treeview(win, columns=cols, show="headings", height=15)
-        for key, label, w in [("id", "ID", 50), ("asset", "Tài sản", 80), ("type", "Loại", 70), ("side", "Hình thức", 80), ("qty", "Số lượng", 100), ("price", "Giá", 100), ("pnl", "PnL", 100), ("date", "Thời gian", 150)]:
+        for key, label, w in [("id", "ID", 50), ("asset", "Tài sản", 80), ("type", "Loại", 70), ("side", "Hình thức", 80), ("qty", "Số lượng", 100), ("price", "Giá", 100), ("pnl", "Lãi/Lỗ", 100), ("date", "Thời gian", 150)]:
             tree.heading(key, text=label)
             tree.column(key, width=w, anchor="center")
         tree.pack(fill="both", expand=True, padx=8, pady=8)
@@ -454,7 +501,7 @@ class PortfolioApp:
             messagebox.showwarning("Biểu đồ", "Nhập mã tài sản (ví dụ BTC) để xem biểu đồ.")
             return
         win = tk.Toplevel(self.root)
-        win.title(f"Biểu đồ {asset}USDT")
+        win.title(f"Biểu đồ nến - {asset}USDT")
         win.geometry("900x600")
         win.configure(bg=self.t["bg"])
 
@@ -497,7 +544,7 @@ class PortfolioApp:
             fig, axes = mpf.plot(
                 df, type="candle", style=s, volume=True,
                 title=f"\n{asset}USDT ({interval})",
-                ylabel="Giá (USDT)", ylabel_lower="Volume",
+                ylabel="Giá (USDT)", ylabel_lower="Khối lượng",
                 figsize=(11, 6), returnfig=True,
                 figscale=1.0,
             )
@@ -531,11 +578,11 @@ class PortfolioApp:
             messagebox.showwarning("Telegram", "Telegram chưa cấu hình. Kiểm tra config.py hoặc .env")
             return
         try:
-            self.telegram.send_message("Test from Portfolio App - kết nối thành công!")
-            self.log("Đã gửi tin nhắn test Telegram.")
-            messagebox.showinfo("Telegram", "Gửi thành công! Kiểm tra Telegram.")
+            self.telegram.send_message("Kiểm tra kết nối từ ứng dụng Quản lý Danh mục - Thành công!")
+            self.log("Đã gửi tin nhắn kiểm tra Telegram.")
+            messagebox.showinfo("Telegram", "Gửi thành công! Kiểm tra Telegram của bạn.")
         except Exception as exc:
-            self.log(f"Lỗi test Telegram: {exc}")
+            self.log(f"Lỗi kiểm tra Telegram: {exc}")
             messagebox.showerror("Telegram", f"Lỗi: {exc}")
 
     def on_binance_balance(self) -> None:
@@ -552,7 +599,7 @@ class PortfolioApp:
             return
         self.log("=== Số dư Binance ===")
         for b in balances:
-            self.log(f"  {b['asset']}: {b['total']:.8f} (free: {b['free']:.8f}, locked: {b['locked']:.8f})")
+            self.log(f"  {b['asset']}: {b['total']:.8f} (khả dụng: {b['free']:.8f}, khoá: {b['locked']:.8f})")
         self.log(f"Tổng {len(balances)} tài sản có số dư.")
 
     def on_binance_trades(self) -> None:
@@ -575,7 +622,7 @@ class PortfolioApp:
         for t in trades:
             side = "MUA" if t["is_buyer"] else "BÁN"
             ts = datetime.fromtimestamp(t["time"] / 1000).strftime("%Y-%m-%d %H:%M:%S")
-            self.log(f"  [{ts}] {side} {t['qty']:.8f} @ {t['price']:.2f} (fee: {t['commission']} {t['commission_asset']})")
+            self.log(f"  [{ts}] {side} {t['qty']:.8f} @ {t['price']:.2f} (phí: {t['commission']} {t['commission_asset']})")
 
     def on_binance_orders(self) -> None:
         asset = self.asset_entry.get().strip().upper()
@@ -604,14 +651,17 @@ class PortfolioApp:
         except ValueError:
             return None
 
+    # ── Bảng danh mục ──────────────────────────────────────────────────
+
     def refresh_table(self) -> None:
         for row in self.tree.get_children():
             self.tree.delete(row)
         for position in self.portfolio.all_positions():
             total_pnl = position.total_pnl
             tag = "profit" if total_pnl > 0 else ("loss" if total_pnl < 0 else "even")
+            type_label = "Crypto" if position.asset_type == "crypto" else "CP"
             self.tree.insert("", "end", iid=f"{position.asset}_{position.asset_type}", tags=(tag,), values=(
-                position.asset, position.asset_type,
+                position.asset, type_label,
                 f"{position.quantity_on_hand:.6f}", f"{position.current_price:.2f}",
                 f"{position.average_cost:.2f}", f"{position.current_value:.2f}",
                 f"{position.realized_pnl:+.2f}", f"{position.unrealized_pnl:+.2f}",
@@ -619,7 +669,9 @@ class PortfolioApp:
             ))
         total = self.portfolio.total_pnl()
         pnl_color = self.t["green"] if total > 0 else (self.t["red"] if total < 0 else self.t["fg"])
-        self.pnl_label.configure(text=f"Tổng PnL: {total:+.2f} USD", fg=pnl_color)
+        self.pnl_label.configure(text=f"Tổng Lãi/Lỗ: {total:+.2f} USD", fg=pnl_color)
+
+    # ── Cập nhật giá nền ───────────────────────────────────────────────
 
     def start_updates(self) -> None:
         if self.running:
@@ -633,7 +685,7 @@ class PortfolioApp:
     def stop_updates(self) -> None:
         self.running = False
         self.update_status_label.configure(text="Cập nhật giá: Tắt", fg=self.t["fg_dim"])
-        self.log("Dừng cập nhật giá.")
+        self.log("Đã dừng cập nhật giá.")
 
     def _price_update_loop(self) -> None:
         while self.running:
@@ -649,6 +701,8 @@ class PortfolioApp:
                 except Exception as exc:
                     self._queue_log(f"Lỗi cập nhật giá {position.asset}: {exc}")
             time.sleep(POLL_INTERVAL)
+
+    # ── Cảnh báo giá ───────────────────────────────────────────────────
 
     def _check_alert(self, position) -> None:
         current = position.current_price
@@ -677,14 +731,16 @@ class PortfolioApp:
             f"Giá hiện tại: {position.current_price:.2f}\n"
             f"Mục tiêu: {alert['target_price']:.2f}\n"
             f"Số lượng: {position.quantity_on_hand:.6f}\n"
-            f"Unrealized PnL: {position.unrealized_pnl:.2f}\n"
-            f"Realized PnL: {position.realized_pnl:.2f}"
+            f"Lãi/Lỗ chờ: {position.unrealized_pnl:.2f}\n"
+            f"Lãi/Lỗ thực: {position.realized_pnl:.2f}"
         )
         if self.telegram.is_configured():
             self.telegram.send_message(message)
             self._queue_log(f"Đã gửi cảnh báo Telegram cho {position.asset}: {direction_label} @ {alert['target_price']}")
         else:
             self._queue_log(f"Cảnh báo cho {position.asset}: {direction_label} @ {alert['target_price']} (Telegram chưa cấu hình)")
+
+    # ── Nhật ký & Hàng đợi ─────────────────────────────────────────────
 
     def _queue_log(self, message: str) -> None:
         self.log_queue.put(message)
@@ -716,6 +772,8 @@ class PortfolioApp:
         self.log_text.insert("end", f"[{timestamp}] {message}\n")
         self.log_text.configure(state="disabled")
         self.log_text.see("end")
+
+    # ── Lưu / Tải dữ liệu ─────────────────────────────────────────────
 
     def _save_data(self) -> None:
         if self.use_db and self.db and self.db.is_connected():
@@ -778,6 +836,8 @@ class PortfolioApp:
         self.refresh_table()
         self.log(f"Đã tải dữ liệu từ {DATA_FILE.name}")
 
+    # ── Đóng ứng dụng ──────────────────────────────────────────────────
+
     def _on_close(self) -> None:
         self.running = False
         self._save_data()
@@ -785,10 +845,12 @@ class PortfolioApp:
             self.db.close()
         self.root.destroy()
 
+    # ── Trợ giúp & Giới thiệu ─────────────────────────────────────────
+
     def _show_help(self) -> None:
         help_win = tk.Toplevel(self.root)
         help_win.title("Hướng dẫn sử dụng")
-        help_win.geometry("620x520")
+        help_win.geometry("620x550")
         help_win.configure(bg=self.t["bg"])
         text = tk.Text(help_win, wrap="word", bg=self.t["bg_light"], fg=self.t["fg"], font=("Consolas", 11), padx=16, pady=16, borderwidth=0)
         text.pack(fill="both", expand=True)
@@ -796,52 +858,52 @@ class PortfolioApp:
 
 1. THÊM GIAO DỊCH
    - Nhập mã tài sản (ví dụ: BTC, ETH, AAPL)
-   - Chọn loại: Crypto hoặc Stock
-   - Chọn hình thức: Buy (mua) hoặc Sell (bán)
+   - Chọn loại: Tiền điện tử hoặc Cổ phiếu
+   - Chọn hình thức: Mua hoặc Bán
    - Nhập số lượng và giá giao dịch
    - Nhấn "Thêm giao dịch"
 
 2. ĐẶT CẢNH BÁO GIÁ
    - Nhập mã tài sản đã thêm
    - Nhập Giá mục tiêu
-   - Chọn Hướng: Chốt lời (cảnh báo khi giá vượt trên) hoặc Cắt lỗ (cảnh báo khi giá rớt dưới)
+   - Chọn Hướng: Chốt lời (cảnh báo khi giá vượt trên)
+     hoặc Cắt lỗ (cảnh báo khi giá rớt dưới)
    - Nhấn "Đặt cảnh báo giá"
    - Khi giá chạm mục tiêu, Telegram sẽ tự động cảnh báo
 
 3. CẬP NHẬT GIÁ
-   - Nhấn "Bắt đầu cập nhật giá" để tự động lấy giá mỗi 10 giây
+   - Nhấn "Bắt đầu cập nhật giá" để tự động lấy giá
    - Nhấn "Làm mới giá ngay" để cập nhật ngay lập tức
    - Nhấn "Dừng cập nhật" để tắt
 
 4. BINANCE API
-   - "Xem số dư": Xem tất cả tài sản trên Binance
-   - "Lịch sử giao dịch": Xem 20 lệnh gần nhất của một tài sản
+   - "Số dư": Xem tất cả tài sản trên Binance
+   - "Lịch sử GD": Xem 20 lệnh gần nhất của một tài sản
    - "Lệnh đang mở": Xem các lệnh chờ trên Binance
 
 5. TELEGRAM
-   - "Test Telegram": Gửi tin nhắn kiểm tra kết nối
+   - "Kiểm tra Telegram": Gửi tin nhắn kiểm tra kết nối
    - Tự động cảnh báo khi giá chạm mục tiêu
 
 6. GIAO DIỆN SÁNG/TỐI
-   - Nhấn nút "Light Mode" / "Dark Mode" ở góc phải để chuyển theme
+   - Nhấn nút góc phải trên để chuyển đổi giao diện
 
 7. LƯU DỮ LIỆU
    - Dữ liệu tự động lưu khi thêm giao dịch
-   - Nhấn Ctrl+S để lưu thủ công
-   - Dữ liệu được lưu trong portfolio_data.json""")
+   - Nhấn Ctrl+S để lưu thủ công""")
         text.configure(state="disabled")
 
     def _show_about(self) -> None:
         messagebox.showinfo("Giới thiệu",
-            "Portfolio Manager & Price Alert\n\n"
+            "Quản lý Danh mục & Cảnh báo Giá\n\n"
             "Hệ thống quản lý danh mục đầu tư\n"
-            "và cảnh báo giá tiền điện tử/cổ phiếu\n\n"
+            "và cảnh báo giá tiền điện tử / cổ phiếu\n\n"
             "Tích hợp:\n"
             "- Binance API (giá crypto theo thời gian thực)\n"
             "- Yahoo Finance (giá cổ phiếu)\n"
             "- Telegram Bot API (cảnh báo tự động)\n\n"
-            "Đa luồng (Threading) cập nhật giá không làm đơ giao diện\n"
-            "Tính lãi/lỗ (PnL) theo FIFO")
+            "Đa luồng cập nhật giá không làm đơ giao diện\n"
+            "Tính lãi/lỗ theo phương pháp FIFO")
 
 
 if __name__ == "__main__":
